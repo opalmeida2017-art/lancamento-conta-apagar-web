@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Automação NFe — Web</title>
+  <link rel="stylesheet" href="/assets/css/app.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>Automação NFe</h1>
+        <p id="brand-sub">Sistema Web autônomo</p>
+        <p id="brand-versao" class="versao-badge"></p>
+      </div>
+      <button class="nav-btn active" data-page="execucao">Execução e Notas</button>
+      <button class="nav-btn" data-page="importa-xml">Importa XML</button>
+      <button class="nav-btn" data-page="veiculos">Veículos Ativos</button>
+      <button class="nav-btn" data-page="itens">Itens</button>
+      <button class="nav-btn" data-page="filtros">Parâmetros ERP</button>
+      <button class="nav-btn" data-page="config">Configurações</button>
+      <button class="nav-btn" data-page="logs">Logs do Robô</button>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="robo-status">
+          <span id="robo-pill" class="status-pill">Robô parado</span>
+          <input id="robo-nota-alvo" placeholder="Nº nota (opcional)" />
+          <button id="btn-robo" class="btn success">Iniciar robô</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- EXECUÇÃO -->
+        <section id="page-execucao" class="page active">
+          <h2>Execução e Notas</h2>
+          <div class="filters">
+            <div class="field"><label>Data emissão</label><input id="f-dt-ini" placeholder="DD/MM/AAAA" /></div>
+            <div class="field"><label>até</label><input id="f-dt-fim" placeholder="DD/MM/AAAA" /></div>
+            <div class="field"><label>Cód. Int.</label><input id="f-cod" /></div>
+            <div class="field"><label>Nº Nota</label><input id="f-nota" /></div>
+            <div class="field"><label>Status</label>
+              <select id="f-status">
+                <option>Todos</option><option>Importado</option><option>Processado</option>
+                <option>Erro</option><option>Processando</option>
+              </select>
+            </div>
+            <div class="field"><label>Limite</label>
+              <select id="f-limite">
+                <option>100</option><option>200</option><option>500</option><option>1000</option><option>Todos</option>
+              </select>
+            </div>
+            <button id="btn-buscar-notas" class="btn">Buscar</button>
+            <button id="btn-limpar-notas" class="btn secondary">Limpar</button>
+            <button id="btn-rel-notas" class="btn link-btn">Relatório</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nota</th><th>Status</th><th>Fornecedor</th><th>Valor</th><th>Data</th>
+                  <th>Cód.Int.</th><th>Placa</th><th>KM</th><th>Estoque</th><th>Arquiva</th>
+                  <th>Erro</th><th>Observação NFe</th><th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-notas"></tbody>
+            </table>
+          </div>
+          <p id="info-notas" class="info-bar"></p>
+        </section>
+
+        <!-- IMPORTA XML -->
+        <section id="page-importa-xml" class="page">
+          <h2>Importação Manual de XML</h2>
+          <div class="filters">
+            <div class="field flex-grow"><label>Pasta no servidor</label><input id="xml-pasta" placeholder="C:\pasta\xmls" /></div>
+            <button id="btn-xml-pasta" class="btn">Carregar pasta</button>
+            <label class="btn secondary file-label">
+              Upload XMLs <input type="file" id="xml-upload" multiple accept=".xml" hidden />
+            </label>
+            <button id="btn-xml-iniciar" class="btn success">▶ Iniciar Importação</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nº Nota</th><th>Arquivo</th><th>Status</th><th>Mensagem</th></tr></thead>
+              <tbody id="tbody-xml"></tbody>
+            </table>
+          </div>
+          <p id="info-xml" class="info-bar">Selecione uma pasta ou faça upload de XMLs.</p>
+        </section>
+
+        <!-- VEÍCULOS -->
+        <section id="page-veiculos" class="page">
+          <h2>Veículos Ativos (Relatório 117)</h2>
+          <div class="filters">
+            <div class="field"><label>Placa</label><input id="v-placa" placeholder="AAA1A11" /></div>
+            <div class="field"><label>Limite</label>
+              <select id="v-limite"><option>100</option><option>200</option><option>500</option><option>Todos</option></select>
+            </div>
+            <button id="btn-buscar-veiculos" class="btn">Filtrar</button>
+            <button id="btn-sync-veiculos" class="btn">Atualizar do ERP</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>codVeiculo</th><th>cavalo</th><th>placa</th><th>carreta1</th><th>carreta2</th><th>carreta3</th>
+                  <th>veiculoProprio</th><th>Movimentação</th><th>Data mov.</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-veiculos"></tbody>
+            </table>
+          </div>
+          <p id="info-veiculos" class="info-bar"></p>
+        </section>
+
+        <!-- ITENS -->
+        <section id="page-itens" class="page">
+          <h2>Itens (Relatório 118)</h2>
+          <div class="filters">
+            <div class="field"><label>Código</label><input id="i-cod" /></div>
+            <div class="field"><label>Grupo</label><select id="i-grupo"><option>Todos</option></select></div>
+            <div class="field"><label>Descrição</label><input id="i-desc" /></div>
+            <div class="field"><label>Limite</label>
+              <select id="i-limite"><option>100</option><option>200</option><option>500</option><option>1000</option><option>Todos</option></select>
+            </div>
+            <button id="btn-buscar-itens" class="btn">Buscar</button>
+            <button id="btn-migrar-itens" class="btn warning">Alterar Grupo em Lote</button>
+            <button id="btn-sync-itens" class="btn">Atualizar do ERP</button>
+            <button id="btn-rel-itens" class="btn link-btn">Relatório</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="i-check-all" /></th>
+                  <th>Código</th><th>Descrição</th><th>Grupo</th><th>Negócio</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-itens"></tbody>
+            </table>
+          </div>
+          <p id="info-itens" class="info-bar"></p>
+        </section>
+
+        <!-- FILTROS -->
+        <section id="page-filtros" class="page">
+          <h2>Parâmetros ERP</h2>
+          <div class="form-grid cols-3">
+            <div class="card-section">
+              <h3>Período SEFAZ</h3>
+              <div class="field"><label>Mês</label><select id="filtro-mes"></select></div>
+              <div class="field"><label>Ano</label><input id="filtro-ano" value="2026" /></div>
+              <div class="checkbox-row"><input type="checkbox" id="filtro-30" /><label for="filtro-30">Últimos 30 dias</label></div>
+              <div class="checkbox-row"><input type="checkbox" id="filtro-hoje" /><label for="filtro-hoje">Apenas hoje</label></div>
+              <div class="field"><label>Cód. Filial fixo</label><input id="filtro-filial" /></div>
+              <div class="field"><label>Cód. UE fixo</label><input id="filtro-ue" /></div>
+              <div class="field"><label>Fornecedores A Faturar</label><textarea id="filtro-forn"></textarea></div>
+              <div class="field"><label>Cód. Tipo Fornecedor</label><input id="filtro-tipo-forn" /></div>
+            </div>
+            <div class="card-section">
+              <h3>Placa e KM</h3>
+              <div class="field"><label>Modelos de Placa</label><input id="filtro-placas" placeholder="PLACA: AAA-1A11, PLAC: AAA 1A11, ..." /></div>
+              <div class="field"><label>Modelos de KM</label><input id="filtro-km" placeholder="KM: 1, ODOMETRO : 1, ODO: 1, ..." /></div>
+            </div>
+            <div class="card-section">
+              <h3>Combustíveis</h3>
+              <div class="field"><label>Etanol</label><input id="filtro-etanol" /></div>
+              <div class="field"><label>Gasolina</label><input id="filtro-gasolina" /></div>
+              <div class="field"><label>S10</label><input id="filtro-s10" /></div>
+              <div class="field"><label>S500</label><input id="filtro-s500" /></div>
+              <div class="field"><label>Arla</label><input id="filtro-arla" /></div>
+            </div>
+          </div>
+          <h3 class="section-sub">Relatórios ERP</h3>
+          <div class="form-grid">
+            <div class="field"><label>Rel. Veículos (117)</label><input id="filtro-rel-veiculo" placeholder="117" /></div>
+            <div class="field"><label>Rel. Itens (118)</label><input id="filtro-rel-item" placeholder="118" /></div>
+            <div class="field"><label>Cód. Grupo Item</label><input id="filtro-rel-grupo" placeholder="107" /></div>
+          </div>
+          <button id="btn-salvar-filtros" class="btn">Salvar parâmetros</button>
+        </section>
+
+        <!-- CONFIG -->
+        <section id="page-config" class="page">
+          <h2>Configurações do Sistema</h2>
+          <p id="cfg-versao" class="versao-badge"></p>
+          <h3 class="section-sub">ERP (login do robô)</h3>
+          <div class="form-grid">
+            <div class="field"><label>Link ERP</label><input id="cfg-link" placeholder="https://..." /></div>
+            <div class="field"><label>Usuário ERP</label><input id="cfg-user" /></div>
+            <div class="field"><label>Senha ERP</label><input id="cfg-senha" type="password" /></div>
+          </div>
+          <h3 class="section-sub">E-mail SMTP</h3>
+          <div class="form-grid">
+            <div class="field"><label>SMTP</label><input id="cfg-smtp" /></div>
+            <div class="field"><label>Porta</label><input id="cfg-porta" placeholder="587" /></div>
+            <div class="field"><label>E-mail</label><input id="cfg-email" /></div>
+            <div class="field"><label>Senha e-mail</label><input id="cfg-email-senha" type="password" /></div>
+            <div class="field"><label>Destinatários</label><input id="cfg-destinatarios" placeholder="email1@x.com, email2@x.com" /></div>
+          </div>
+          <div class="checkbox-row"><input type="checkbox" id="cfg-ssl" /><label for="cfg-ssl">Usar SSL/TLS</label></div>
+          <h3 class="section-sub">Agendamento de relatórios</h3>
+          <div class="form-grid">
+            <div class="field"><label>Tipo</label>
+              <select id="cfg-agendamento">
+                <option value="">Desativado</option>
+                <option value="hora">A cada X horas</option>
+                <option value="diario">Diário 23:59</option>
+                <option value="semanal">Semanal (segunda)</option>
+                <option value="mensal">Mensal (último dia)</option>
+              </select>
+            </div>
+            <div class="field"><label>Intervalo (horas)</label><input id="cfg-intervalo" type="number" min="1" value="1" /></div>
+          </div>
+          <p id="cfg-agendamento-resumo" class="hint"></p>
+          <div class="btn-row">
+            <button id="btn-salvar-config" class="btn">Salvar configurações</button>
+            <button id="btn-enviar-relatorio" class="btn secondary">Enviar relatório manual</button>
+          </div>
+          <h3 class="section-sub">Licença remota</h3>
+          <div class="form-grid">
+            <div class="field"><label>Razão social transportadora</label><input id="cfg-razao" /></div>
+            <div class="field"><label>ID instalação</label><input id="cfg-instalacao-id" readonly /></div>
+          </div>
+          <p id="cfg-licenca-status" class="hint"></p>
+          <div class="btn-row">
+            <button id="btn-registrar-licenca" class="btn">Salvar / Registrar licença</button>
+            <button id="btn-verificar-licenca" class="btn secondary">Verificar licença</button>
+          </div>
+        </section>
+
+        <!-- LOGS -->
+        <section id="page-logs" class="page">
+          <h2>Logs do Robô</h2>
+          <div class="filters">
+            <div class="field"><label>Data/Hora ini</label><input id="log-dt-ini" placeholder="DD/MM/AAAA HH:MM" /></div>
+            <div class="field"><label>Data/Hora fim</label><input id="log-dt-fim" placeholder="DD/MM/AAAA HH:MM" /></div>
+            <div class="field"><label>Nº Nota</label><input id="log-nota" /></div>
+            <div class="field"><label>Limite</label>
+              <select id="log-limite"><option>200</option><option>500</option><option>1000</option><option>2000</option><option>Todos</option></select>
+            </div>
+            <button id="btn-filtrar-logs" class="btn">Filtrar</button>
+            <button id="btn-limpar-filtros-logs" class="btn secondary">Limpar filtros</button>
+            <button id="btn-limpar-logs" class="btn danger">Limpar logs</button>
+            <button id="btn-enviar-suporte" class="btn">Enviar log p/ Suporte</button>
+          </div>
+          <div id="log-page-content" class="log-panel log-page"></div>
+        </section>
+      </div>
+
+      <div id="log-panel" class="log-panel" title="Log ao vivo"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/assets/js/app.js?v=6"></script>
+</body>
+</html>

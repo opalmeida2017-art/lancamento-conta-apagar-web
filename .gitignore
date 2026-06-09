@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.db
+*.pyc
+*.pyo
+.env
+secret.key
+downloads/
+*.xls
+*.xlsx
+licenca_config.py
+*.log
+.deploy/
