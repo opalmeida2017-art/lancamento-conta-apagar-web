@@ -7,19 +7,25 @@ WEB_ROOT = Path(__file__).resolve().parent.parent
 if str(WEB_ROOT) not in sys.path:
     sys.path.insert(0, str(WEB_ROOT))
 
+# Carrega .env do servidor
+env_file = WEB_ROOT / ".env"
+if env_file.is_file():
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
 import web_tenant_registry as registry
 
 
 def _criar_banco(pg_database: str):
-    import psycopg2
+    import database_connection as dc
 
-    params = {
-        "host": os.getenv("PG_HOST", "localhost"),
-        "port": int(os.getenv("PG_PORT", "5432")),
-        "user": os.getenv("PG_USER", "postgres"),
-        "password": os.getenv("PG_PASSWORD", ""),
-        "dbname": "postgres",
-    }
+    params = {**dc._dsn(), "dbname": "postgres"}
+    params["dbname"] = "postgres"
+    import psycopg2
     conn = psycopg2.connect(**params)
     conn.autocommit = True
     cur = conn.cursor()
