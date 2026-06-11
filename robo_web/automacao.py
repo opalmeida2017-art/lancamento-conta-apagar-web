@@ -35,7 +35,8 @@ def _executar_sessao(
     nota_alvo=None,
     compra_estoque=False,
     ultimos_30_dias=False,
-    hoje_apenas=False, # 🟢 ADICIONADO AQUI
+    hoje_apenas=False,
+    ultimos_15_dias=False,
 ):
     browser = p.chromium.launch(headless=usar_headless(), channel="chrome")
     registrar_browser(browser)
@@ -53,7 +54,8 @@ def _executar_sessao(
                 anos,
                 log,
                 ultimos_30_dias=ultimos_30_dias,
-                hoje_apenas=hoje_apenas, # 🟢 ADICIONADO AQUI
+                hoje_apenas=hoje_apenas,
+                ultimos_15_dias=ultimos_15_dias,
             ):
                 return False
                 
@@ -93,7 +95,8 @@ def iniciar_automacao(
     nota_alvo=None,
     compra_estoque=False,
     ultimos_30_dias=False,
-    hoje_apenas=False, # 🟢 ADICIONADO AQUI
+    hoje_apenas=False,
+    ultimos_15_dias=False,
 ):
     def log(msg):
         if progresso_callback:
@@ -116,7 +119,8 @@ def iniciar_automacao(
                         nota_alvo=nota_alvo,
                         compra_estoque=compra_estoque,
                         ultimos_30_dias=ultimos_30_dias,
-                        hoje_apenas=hoje_apenas, # 🟢 ADICIONADO AQUI
+                        hoje_apenas=hoje_apenas,
+                        ultimos_15_dias=ultimos_15_dias,
                     )
                 if not modo_continuo:
                     log('Automação concluída.')

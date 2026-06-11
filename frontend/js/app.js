@@ -76,14 +76,20 @@ function podeMarcarArquiva(status) {
   return !STATUS_SEM_ARQUIVA.has(String(status || "").toUpperCase());
 }
 
+function statusExibicao(n) {
+  if (String(n.nfe_arquiva || "").includes("☑")) return "Arquivada";
+  return n.status || "";
+}
+
 function renderNotas(notas) {
   notasCache = notas;
   const tbody = el("tbody-notas");
   tbody.innerHTML = "";
-  notas.forEach((n) => {
+  notas.forEach((n, idx) => {
     const tr = document.createElement("tr");
     const st = (n.status || "").toUpperCase();
     if (st === "ERRO") tr.style.color = "#ff8a80";
+    if (idx % 2 === 1) tr.classList.add("row-alt");
     const chave = esc(n.chave_nfe);
     const estoqueChecked = String(n.nfe_estoque || "").includes("☑");
     const arquivaChecked = String(n.nfe_arquiva || "").includes("☑");
@@ -94,13 +100,15 @@ function renderNotas(notas) {
       ? `<input type="checkbox" class="chk-arquiva" data-chave="${chave}" ${arquivaChecked ? "checked" : ""} />`
       : "";
     tr.innerHTML = `
-      <td>${esc(n.num_nota)}</td><td>${esc(n.status)}</td><td>${esc(n.fornecedor)}</td>
-      <td>${esc(n.valor)}</td><td>${esc(n.data_em)}</td><td>${esc(n.codigo_interno)}</td>
+      <td>${esc(n.data_insercao)}</td><td>${esc(n.codigo_interno)}</td>
+      <td>${esc(statusExibicao(n))}</td><td>${esc(n.fornecedor)}</td><td>${esc(n.num_nota)}</td>
       <td class="editable" data-chave="${chave}" data-num="${esc(n.num_nota)}" data-field="placa">${esc(n.painel_placa || "—")}</td>
       <td class="editable" data-chave="${chave}" data-num="${esc(n.num_nota)}" data-field="km">${esc(n.painel_km || "—")}</td>
-      <td class="center">${estoqueCell}</td><td class="center">${arquivaCell}</td>
+      <td>${esc(n.data_em)}</td><td>${esc(n.valor)}</td><td>${esc(n.sit_nfe)}</td>
+      <td>${esc(n.filial)}</td><td>${esc(n.user_ins)}</td>
       <td class="col-erro">${esc(n.erro_importacao)}</td>
       <td class="col-obs" data-chave="${chave}" title="Clique para ver completo">${esc(resumirObs(n.observacao_nfe))}</td>
+      <td class="center">${estoqueCell}</td><td class="center">${arquivaCell}</td>
       <td><button class="btn secondary btn-nota" data-nota="${esc(n.num_nota)}">▶ Nota</button></td>`;
     tbody.appendChild(tr);
   });
@@ -114,8 +122,45 @@ function notasQueryParams() {
     cod: el("f-cod").value.trim(),
     status: el("f-status").value,
     nota: el("f-nota").value.trim(),
+    fornecedor: el("f-fornecedor")?.value?.trim() || "Todos",
+    tipo_data: el("f-tipo-data")?.value || "insercao",
     limite: el("f-limite").value,
   });
+}
+
+async function carregarFornecedores() {
+  try {
+    const r = await API.get("/api/notas/fornecedores");
+    const dl = el("lista-fornecedores");
+    if (!dl) return;
+    dl.innerHTML = "";
+    (r.fornecedores || []).forEach((f) => {
+      const o = document.createElement("option");
+      o.value = f;
+      dl.appendChild(o);
+    });
+  } catch (_) {}
+}
+
+function abrirLancarLote() {
+  const texto = prompt(
+    "Informe os números das notas separados por vírgula ou quebra de linha:",
+    "",
+  );
+  if (!texto) return;
+  const notas = [...new Set(
+    texto.split(/[\s,;]+/).map((n) => n.trim()).filter(Boolean),
+  )];
+  if (!notas.length) {
+    alert("Informe ao menos um número de nota.");
+    return;
+  }
+  API.post("/api/robo/lote", { notas_lote: notas })
+    .then((r) => {
+      appendLogLine(r.acao === "lote_iniciado" ? `Lote iniciado: ${notas.length} nota(s).` : (r.mensagem || "Lote."));
+      refreshRoboStatus();
+    })
+    .catch((e) => alert(e.message));
 }
 
 async function buscarNotas(perguntarEstoque = false) {
@@ -333,6 +378,7 @@ async function carregarFiltros() {
   el("filtro-filial").value = f.cod_filial || "";
   el("filtro-ue").value = f.cod_unidade_embarque || "";
   el("filtro-30").checked = !!f.ultimos_30_dias;
+  el("filtro-15").checked = !!f.ultimos_15_dias;
   el("filtro-hoje").checked = !!f.hoje_apenas;
   el("filtro-forn").value = f.fornecedores_fatura_afaturar || "";
   el("filtro-tipo-forn").value = f.cod_tipo_fornecedor || "";
@@ -356,6 +402,7 @@ async function salvarFiltros() {
       cod_filial: el("filtro-filial").value,
       cod_unidade_embarque: el("filtro-ue").value,
       ultimos_30_dias: el("filtro-30").checked,
+      ultimos_15_dias: el("filtro-15").checked,
       hoje_apenas: el("filtro-hoje").checked,
       fornecedores_fatura_afaturar: el("filtro-forn").value,
       cod_tipo_fornecedor: el("filtro-tipo-forn").value,
@@ -499,6 +546,123 @@ async function enviarSuporte() {
   } catch (e) { alert(e.message); }
 }
 
+// --- Tarifa Bancária ---
+function tarifaQueryParams() {
+  return new URLSearchParams({
+    cnpj: el("tarifa-cnpj")?.value === "Todos" ? "" : (el("tarifa-cnpj")?.value || ""),
+    data_ini: el("tarifa-dt-ini")?.value?.trim() || "",
+    data_fim: el("tarifa-dt-fim")?.value?.trim() || "",
+    status: el("tarifa-status")?.value || "Todos",
+  });
+}
+
+function renderTarifas(data) {
+  const painel = el("tarifa-painel");
+  if (!painel) return;
+  painel.innerHTML = "";
+  const grupos = data.grupos || [];
+  if (!grupos.length) {
+    painel.innerHTML = '<p class="hint">Nenhuma tarifa ou conta cadastrada. Configure a pasta e importe planilhas.</p>';
+  }
+  grupos.forEach((g) => {
+    const card = document.createElement("div");
+    card.className = "tarifa-card";
+    card.innerHTML = `<h3>${esc(g.cnpj)} — ${esc(g.razao_social)}</h3>`;
+    (g.contas || []).forEach((conta) => {
+      const bloco = document.createElement("div");
+      bloco.className = "tarifa-conta";
+      bloco.innerHTML = `
+        <h4>Ag. ${esc(conta.agencia)} / Conta ${esc(conta.conta)}
+          <span class="hint">Arquivo: ${esc(conta.data_arquivo_xls || "—")}</span></h4>`;
+      const table = document.createElement("table");
+      table.innerHTML = `<thead><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Status</th></tr></thead>`;
+      const tbody = document.createElement("tbody");
+      (conta.tarifas || []).forEach((t) => {
+        const tr = document.createElement("tr");
+        if (String(t.status || "").toUpperCase() === "ERRO") tr.classList.add("erro");
+        tr.innerHTML = `
+          <td>${esc(t.data_movimento)}</td><td>${esc(t.descricao)}</td>
+          <td>${esc(t.valor)}</td><td>${esc(t.status)}</td>`;
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      bloco.appendChild(table);
+      card.appendChild(bloco);
+    });
+    painel.appendChild(card);
+  });
+  const info = el("info-tarifa");
+  if (info) info.textContent = `${data.total || 0} tarifa(s) no painel.`;
+  const ult = el("tarifa-ultima");
+  if (ult) {
+    ult.textContent = data.ultima_importacao
+      ? `Última importação de planilhas: ${data.ultima_importacao}`
+      : "Nenhuma planilha importada ainda.";
+  }
+  const mon = el("tarifa-monitor");
+  if (mon) {
+    mon.textContent = data.monitor_ativo
+      ? "Monitoramento automático da pasta XLS: ATIVO (robô em execução)"
+      : "Monitoramento automático: inativo (inicie o robô para ativar)";
+    mon.className = "hint " + (data.monitor_ativo ? "ok" : "");
+  }
+  if (el("tarifa-pasta") && data.pasta) el("tarifa-pasta").value = data.pasta;
+  const cfg = data.config || {};
+  if (el("tarifa-cod-forn")) el("tarifa-cod-forn").value = cfg.cod_fornecedor_sicredi || "640";
+  if (el("tarifa-cod-grupo")) el("tarifa-cod-grupo").value = cfg.cod_grupo_item_tarifa || "44";
+  if (el("tarifa-nome-item")) el("tarifa-nome-item").value = cfg.nome_item_tarifa_padrao || "";
+  const sel = el("tarifa-cnpj");
+  if (sel && data.cnpjs) {
+    const atual = sel.value;
+    sel.innerHTML = "";
+    data.cnpjs.forEach((c) => {
+      const o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
+    });
+    if (data.cnpjs.includes(atual)) sel.value = atual;
+  }
+}
+
+async function carregarTarifas() {
+  try {
+    const r = await API.get(`/api/tarifa?${tarifaQueryParams()}`);
+    renderTarifas(r);
+  } catch (e) {
+    const info = el("info-tarifa");
+    if (info) info.textContent = e.message;
+  }
+}
+
+async function salvarPastaTarifa() {
+  const pasta = el("tarifa-pasta")?.value?.trim();
+  if (!pasta) { alert("Informe o caminho da pasta."); return; }
+  try {
+    await API.put("/api/tarifa/pasta", { pasta });
+    await API.put("/api/tarifa/config", {
+      cod_fornecedor_sicredi: el("tarifa-cod-forn")?.value || "640",
+      cod_grupo_item_tarifa: el("tarifa-cod-grupo")?.value || "44",
+      nome_item_tarifa: el("tarifa-nome-item")?.value || "",
+    });
+    alert("Pasta e parâmetros salvos.");
+    await carregarTarifas();
+  } catch (e) { alert(e.message); }
+}
+
+async function importarTarifas() {
+  try {
+    const r = await API.post("/api/tarifa/importar");
+    appendLogLine(r.mensagem || "Importação iniciada.");
+  } catch (e) { alert(e.message); }
+}
+
+async function lancarTarifas() {
+  try {
+    const r = await API.post("/api/tarifa/lancar");
+    appendLogLine(r.mensagem || "Lançamento iniciado.");
+  } catch (e) { alert(e.message); }
+}
+
 // --- Nav & Events ---
 function initNav() {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -506,7 +670,8 @@ function initNav() {
       const page = btn.dataset.page;
       showPage(page);
       try {
-        if (page === "execucao") await buscarNotas();
+        if (page === "execucao") { await carregarFornecedores(); await buscarNotas(); }
+        if (page === "tarifa") await carregarTarifas();
         if (page === "veiculos") await buscarVeiculos();
         if (page === "itens") { await carregarGrupos(); await buscarItens(); }
         if (page === "filtros") await carregarFiltros();
@@ -522,10 +687,13 @@ function bindClick(id, fn) { const n = el(id); if (n) n.onclick = fn; }
 function initEvents() {
   bindClick("btn-buscar-notas", () => buscarNotas(true));
   bindClick("btn-limpar-notas", () => {
-    ["f-dt-ini", "f-dt-fim", "f-cod", "f-nota"].forEach((id) => { const n = el(id); if (n) n.value = ""; });
-    el("f-status").value = "Todos";
+    ["f-dt-ini", "f-dt-fim", "f-cod", "f-nota", "f-fornecedor"].forEach((id) => { const n = el(id); if (n) n.value = ""; });
+    el("f-status").value = "Erro";
+    if (el("f-tipo-data")) el("f-tipo-data").value = "insercao";
     buscarNotas();
   });
+  bindClick("btn-logs-nfe", () => { showPage("logs"); carregarLogs(); });
+  bindClick("btn-lancar-lote", abrirLancarLote);
   bindClick("btn-rel-notas", relatorioNotas);
   bindClick("btn-robo", () => toggleRobo(false));
   bindClick("btn-sync-veiculos", syncVeiculos);
@@ -548,6 +716,10 @@ function initEvents() {
   bindClick("btn-enviar-suporte", enviarSuporte);
   bindClick("btn-xml-pasta", carregarPastaXml);
   bindClick("btn-xml-iniciar", iniciarImportacaoXml);
+  bindClick("btn-tarifa-salvar-pasta", salvarPastaTarifa);
+  bindClick("btn-tarifa-filtrar", carregarTarifas);
+  bindClick("btn-tarifa-importar", importarTarifas);
+  bindClick("btn-tarifa-lancar", lancarTarifas);
 
   const xmlUpload = el("xml-upload");
   if (xmlUpload) xmlUpload.onchange = uploadXmls;
@@ -595,6 +767,8 @@ function initWebSocket() {
     if (msg.tipo === "log") appendLogLine(msg.mensagem, msg.nivel);
     if (msg.tipo === "status") setRoboUI(msg.rodando, msg.mensagem);
     if (msg.tipo === "painel_atualizar") buscarNotas();
+    if (msg.tipo === "tarifas_atualizadas") carregarTarifas();
+    if (msg.tipo === "lote_nota" && el("f-nota")) el("f-nota").value = msg.nota || "";
     if (msg.tipo === "frota_atualizada") buscarVeiculos();
     if (msg.tipo === "itens_atualizados") { carregarGrupos(); buscarItens(); }
     if (msg.tipo === "xml_item") {
@@ -623,8 +797,10 @@ async function init() {
   initWebSocket();
   showPage("execucao");
   await refreshRoboStatus();
+  await carregarFornecedores();
   await buscarNotas();
   setInterval(refreshRoboStatus, 5000);
+  setInterval(() => { if (roboRodando) buscarNotas(); }, 4000);
   try {
     const h = await API.get("/api/health");
     const sub = el("brand-sub");

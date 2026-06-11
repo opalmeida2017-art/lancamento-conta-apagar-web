@@ -1,15 +1,18 @@
 import asyncio
+import os
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import backend.app.bootstrap as boot
+from backend.app.middleware.tenant_middleware import TenantMiddleware
 from backend.app.ws_manager import ws_manager
 from backend.app.routers import (
     notas, veiculos, itens, filtros, config, robo, logs,
-    parametros, relatorios, importa_xml, suporte, licenca, email,
+    parametros, relatorios, importa_xml, suporte, licenca, email, tarifa,
+    admin, portal,
 )
 from backend.app.services.background_service import background_service
 
@@ -17,14 +20,21 @@ FRONTEND_DIR = boot.WEB_ROOT / "frontend"
 
 app = FastAPI(
     title="Sistema Automação NFe — Web",
-    description="Sistema web autônomo de Contas a Pagar / NFe",
-    version="1.0.0",
+    description="Sistema web autônomo de Contas a Pagar / NFe (multi-transportadora)",
+    version="1.1.0",
 )
+
+app.add_middleware(TenantMiddleware)
 
 
 @app.on_event("startup")
 async def startup():
     ws_manager.bind_loop(asyncio.get_running_loop())
+    try:
+        import web_tenant_registry as registry
+        registry.load_registry()
+    except Exception:
+        pass
     try:
         boot.db.inicializar_banco()
         boot.db.gerar_chave_seguranca()
@@ -32,20 +42,17 @@ async def startup():
         boot.log_service.garantir_tabelas()
         background_service.iniciar()
     except Exception as exc:
-        print("")
-        print("=" * 60)
-        print("ERRO: nao foi possivel conectar ao PostgreSQL.")
-        print(f"  {exc}")
-        print("")
-        print("Verifique:")
-        print("  1. PostgreSQL em execucao")
-        print("  2. Banco criado (CREATE DATABASE nfe_web;)")
-        print("  3. Arquivo .env com PG_HOST, PG_USER, PG_PASSWORD")
-        print("=" * 60)
-        print("")
-        raise
+        if not os.getenv("NFE_ALLOW_START_WITHOUT_DB"):
+            print("")
+            print("=" * 60)
+            print("AVISO: banco padrao indisponivel (modo multi-tenant OK).")
+            print(f"  {exc}")
+            print("=" * 60)
+            print("")
 
 
+app.include_router(portal.router)
+app.include_router(admin.router)
 app.include_router(notas.router)
 app.include_router(veiculos.router)
 app.include_router(itens.router)
@@ -59,13 +66,16 @@ app.include_router(importa_xml.router)
 app.include_router(suporte.router)
 app.include_router(licenca.router)
 app.include_router(email.router)
+app.include_router(tarifa.router)
 
 
 @app.get("/api/health")
 def health():
+    from tenant_context import get_tenant_slug
     return {
         "ok": True,
         "sistema": "web",
+        "tenant": get_tenant_slug(),
         "raiz": str(boot.WEB_ROOT),
         "banco": boot.db.caminho_banco(),
     }
@@ -86,5 +96,7 @@ app.mount("/assets/js", StaticFiles(directory=FRONTEND_DIR / "js"), name="js")
 
 
 @app.get("/")
-def pagina_inicial():
-    return FileResponse(FRONTEND_DIR / "index.html")
+def pagina_root(request: Request):
+    if getattr(request.state, "tenant", None):
+        return FileResponse(FRONTEND_DIR / "index.html")
+    return FileResponse(FRONTEND_DIR / "portal.html")

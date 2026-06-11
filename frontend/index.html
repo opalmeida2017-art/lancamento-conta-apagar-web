@@ -15,6 +15,7 @@
         <p id="brand-versao" class="versao-badge"></p>
       </div>
       <button class="nav-btn active" data-page="execucao">Execução e Notas</button>
+      <button class="nav-btn" data-page="tarifa">Tarifa Bancária</button>
       <button class="nav-btn" data-page="importa-xml">Importa XML</button>
       <button class="nav-btn" data-page="veiculos">Veículos Ativos</button>
       <button class="nav-btn" data-page="itens">Itens</button>
@@ -37,14 +38,24 @@
         <section id="page-execucao" class="page active">
           <h2>Execução e Notas</h2>
           <div class="filters">
-            <div class="field"><label>Data emissão</label><input id="f-dt-ini" placeholder="DD/MM/AAAA" /></div>
+            <div class="field"><label>Filtrar por</label>
+              <select id="f-tipo-data">
+                <option value="insercao">Data Inserção</option>
+                <option value="emissao">Data Emissão NFe</option>
+              </select>
+            </div>
+            <div class="field"><label>De</label><input id="f-dt-ini" placeholder="DD/MM/AAAA" /></div>
             <div class="field"><label>até</label><input id="f-dt-fim" placeholder="DD/MM/AAAA" /></div>
             <div class="field"><label>Cód. Int.</label><input id="f-cod" /></div>
             <div class="field"><label>Nº Nota</label><input id="f-nota" /></div>
+            <div class="field"><label>Fornecedor</label>
+              <input id="f-fornecedor" list="lista-fornecedores" placeholder="Todos" />
+              <datalist id="lista-fornecedores"></datalist>
+            </div>
             <div class="field"><label>Status</label>
               <select id="f-status">
-                <option>Todos</option><option>Importado</option><option>Processado</option>
-                <option>Erro</option><option>Processando</option>
+                <option selected>Erro</option><option>Importado</option><option>Processado</option>
+                <option>Processando</option><option>Arquivada</option><option>Todos</option>
               </select>
             </div>
             <div class="field"><label>Limite</label>
@@ -52,23 +63,55 @@
                 <option>100</option><option>200</option><option>500</option><option>1000</option><option>Todos</option>
               </select>
             </div>
-            <button id="btn-buscar-notas" class="btn">Buscar</button>
+            <button id="btn-buscar-notas" class="btn">🔍 Buscar</button>
             <button id="btn-limpar-notas" class="btn secondary">Limpar</button>
+            <button id="btn-logs-nfe" class="btn secondary">📋 Logs NFe</button>
+            <button id="btn-lancar-lote" class="btn warning">Lançar nota em lote</button>
             <button id="btn-rel-notas" class="btn link-btn">Relatório</button>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap table-wide">
             <table>
               <thead>
                 <tr>
-                  <th>Nota</th><th>Status</th><th>Fornecedor</th><th>Valor</th><th>Data</th>
-                  <th>Cód.Int.</th><th>Placa</th><th>KM</th><th>Estoque</th><th>Arquiva</th>
-                  <th>Erro</th><th>Observação NFe</th><th>Ação</th>
+                  <th>Inserção</th><th>Cód.Int.</th><th>Status</th><th>Fornecedor</th><th>Nº Nota</th>
+                  <th>Placa</th><th>KM</th><th>Data Em.</th><th>Valor</th><th>Sit. NFe</th><th>Filial</th>
+                  <th>Usuário</th><th>Erro</th><th>Observação NFe</th><th>Estoque</th><th>Arquiva</th><th>Ação</th>
                 </tr>
               </thead>
               <tbody id="tbody-notas"></tbody>
             </table>
           </div>
           <p id="info-notas" class="info-bar"></p>
+        </section>
+
+        <!-- TARIFA BANCÁRIA -->
+        <section id="page-tarifa" class="page">
+          <h2>Automação Tarifa Bancária</h2>
+          <p class="hint">Arquivos no padrão agencia_conta.xls (ex.: 0821_26058-4.xls). Com o robô ativo, planilhas novas na pasta são importadas automaticamente.</p>
+          <div class="filters">
+            <div class="field flex-grow"><label>Pasta XLS no servidor</label><input id="tarifa-pasta" placeholder="C:\extratos\sicredi" /></div>
+            <button id="btn-tarifa-salvar-pasta" class="btn">Salvar pasta</button>
+          </div>
+          <div class="form-grid cols-3">
+            <div class="field"><label>Cód. Fornecedor Sicredi</label><input id="tarifa-cod-forn" value="640" /></div>
+            <div class="field"><label>Grupo item</label><input id="tarifa-cod-grupo" value="44" /></div>
+            <div class="field"><label>Item fallback</label><input id="tarifa-nome-item" placeholder="Usa descrição da planilha" /></div>
+          </div>
+          <p id="tarifa-ultima" class="hint"></p>
+          <p id="tarifa-monitor" class="hint"></p>
+          <div class="filters">
+            <div class="field"><label>CNPJ</label><select id="tarifa-cnpj"><option>Todos</option></select></div>
+            <div class="field"><label>Data ini</label><input id="tarifa-dt-ini" placeholder="DD/MM/AAAA" /></div>
+            <div class="field"><label>Data fim</label><input id="tarifa-dt-fim" placeholder="DD/MM/AAAA" /></div>
+            <div class="field"><label>Status</label>
+              <select id="tarifa-status"><option>Todos</option><option>Pendente</option><option>Processado</option><option>Erro</option></select>
+            </div>
+            <button id="btn-tarifa-filtrar" class="btn">Filtrar</button>
+            <button id="btn-tarifa-importar" class="btn success">Importar Planilhas</button>
+            <button id="btn-tarifa-lancar" class="btn">Lançar Pendentes no ERP</button>
+          </div>
+          <div id="tarifa-painel" class="tarifa-painel"></div>
+          <p id="info-tarifa" class="info-bar"></p>
         </section>
 
         <!-- IMPORTA XML -->
@@ -154,7 +197,9 @@
               <div class="field"><label>Mês</label><select id="filtro-mes"></select></div>
               <div class="field"><label>Ano</label><input id="filtro-ano" value="2026" /></div>
               <div class="checkbox-row"><input type="checkbox" id="filtro-30" /><label for="filtro-30">Últimos 30 dias</label></div>
-              <div class="checkbox-row"><input type="checkbox" id="filtro-hoje" /><label for="filtro-hoje">Apenas hoje</label></div>
+              <div class="checkbox-row"><input type="checkbox" id="filtro-15" /><label for="filtro-15">Últimos 15 dias</label></div>
+              <div class="checkbox-row"><input type="checkbox" id="filtro-hoje" /><label for="filtro-hoje">Ontem e hoje</label></div>
+              <p class="hint">Ao marcar período relativo, o robô ignora Mês/Ano.</p>
               <div class="field"><label>Cód. Filial fixo</label><input id="filtro-filial" /></div>
               <div class="field"><label>Cód. UE fixo</label><input id="filtro-ue" /></div>
               <div class="field"><label>Fornecedores A Faturar</label><textarea id="filtro-forn"></textarea></div>
@@ -255,6 +300,6 @@
     </div>
   </div>
 
-  <script type="module" src="/assets/js/app.js?v=6"></script>
+  <script type="module" src="/assets/js/app.js?v=7"></script>
 </body>
 </html>

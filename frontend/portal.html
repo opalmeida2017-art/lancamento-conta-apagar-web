@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Automação NFe — Acesso</title>
+  <link rel="stylesheet" href="/assets/css/app.css" />
+  <style>
+    .portal { max-width: 720px; margin: 4rem auto; padding: 2rem; }
+    .portal h1 { margin-bottom: 0.5rem; }
+    .portal p { color: var(--muted); margin-bottom: 1.5rem; }
+    .tenant-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .tenant-link {
+      display: block; padding: 1rem 1.25rem; background: var(--bg2);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      text-decoration: none;
+    }
+    .tenant-link:hover { border-color: var(--primary); }
+    .tenant-link small { display: block; color: var(--muted); margin-top: 0.25rem; }
+  </style>
+</head>
+<body>
+  <div class="portal">
+    <h1>Automação NFe — Web</h1>
+    <p>Selecione a transportadora ou acesse pelo link exclusivo enviado pelo administrador.</p>
+    <div id="tenant-list" class="tenant-list">Carregando...</div>
+  </div>
+  <script>
+    fetch("/api/portal/tenants")
+      .then((r) => r.json())
+      .then((data) => {
+        const el = document.getElementById("tenant-list");
+        const items = data.tenants || [];
+        if (!items.length) {
+          el.innerHTML = "<p class='hint'>Nenhuma instância cadastrada. Use o Painel de Licenças para criar.</p>";
+          return;
+        }
+        el.innerHTML = items.map((t) =>
+          `<a class="tenant-link" href="/t/${t.slug}/">
+            ${t.razao_social}
+            <small>${t.url || ("/t/" + t.slug + "/")}</small>
+          </a>`).join("");
+      })
+      .catch(() => {
+        document.getElementById("tenant-list").textContent = "Erro ao carregar transportadoras.";
+      });
+  </script>
+</body>
+</html>

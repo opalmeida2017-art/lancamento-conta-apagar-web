@@ -1,8 +1,10 @@
+import { BASE } from "./api.js";
+
 let ws = null;
 
 export function connectWebSocket(onMessage) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws = new WebSocket(`${proto}://${location.host}${BASE}/ws`);
   ws.onmessage = (ev) => {
     try { onMessage(JSON.parse(ev.data)); } catch (_) {}
   };

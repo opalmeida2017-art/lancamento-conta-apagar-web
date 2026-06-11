@@ -43,10 +43,21 @@ OperationalError = pg_errors.OperationalError
 DatabaseError = pg_errors.DatabaseError
 
 
+def nome_banco_atual():
+    try:
+        from tenant_context import get_tenant_db
+        db = get_tenant_db()
+        if db:
+            return db
+    except ImportError:
+        pass
+    return os.getenv('PG_DATABASE', 'nfe_web')
+
+
 def caminho_banco():
     host = os.getenv('PG_HOST', 'localhost')
     port = os.getenv('PG_PORT', '5433')
-    name = os.getenv('PG_DATABASE', 'nfe_web')
+    name = nome_banco_atual()
     user = os.getenv('PG_USER', 'postgres')
     return f'postgresql://{user}@{host}:{port}/{name}'
 
@@ -55,7 +66,7 @@ def _dsn():
     return {
         'host': os.getenv('PG_HOST', 'localhost'),
         'port': int(os.getenv('PG_PORT', '5433')),
-        'dbname': os.getenv('PG_DATABASE', 'nfe_web'),
+        'dbname': nome_banco_atual(),
         'user': os.getenv('PG_USER', 'postgres'),
         'password': os.getenv('PG_PASSWORD', ''),
         'connect_timeout': 10,
@@ -75,8 +86,8 @@ def _conectar_psycopg2(**extra):
 
 
 def _garantir_database():
-    """Cria o banco PG_DATABASE se ainda nao existir."""
-    alvo = os.getenv('PG_DATABASE', 'nfe_web')
+    """Cria o banco PG_DATABASE (ou tenant ativo) se ainda nao existir."""
+    alvo = nome_banco_atual()
     try:
         conn = _conectar_psycopg2(dbname='postgres')
     except psycopg2.OperationalError:

@@ -53,8 +53,46 @@ CREATE TABLE IF NOT EXISTS filtros_salvos (
     cod_unidade_embarque TEXT DEFAULT '',
     ultimos_30_dias INTEGER DEFAULT 0,
     hoje_apenas INTEGER DEFAULT 0,
+    ultimos_15_dias INTEGER DEFAULT 0,
     fornecedores_fatura_afaturar TEXT DEFAULT '',
     cod_tipo_fornecedor TEXT DEFAULT ''
+);
+
+ALTER TABLE filtros_salvos ADD COLUMN IF NOT EXISTS ultimos_15_dias INTEGER DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS tarifas_bancarias (
+    id SERIAL PRIMARY KEY,
+    cnpj TEXT,
+    razao_social TEXT DEFAULT '',
+    agencia TEXT DEFAULT '',
+    conta TEXT DEFAULT '',
+    data_movimento TEXT,
+    descricao TEXT,
+    valor TEXT,
+    status TEXT DEFAULT 'Pendente',
+    codigo_interno TEXT DEFAULT '',
+    erro_processamento TEXT DEFAULT '',
+    data_insercao TEXT DEFAULT '',
+    data_processamento TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS sicredi_mapa_contas (
+    id SERIAL PRIMARY KEY,
+    cnpj TEXT,
+    razao_social TEXT DEFAULT '',
+    agencia TEXT NOT NULL,
+    conta TEXT NOT NULL,
+    ultima_atualizacao TEXT DEFAULT '',
+    data_arquivo_xls TEXT DEFAULT '',
+    cod_filial TEXT DEFAULT '',
+    cod_conta_erp TEXT DEFAULT '',
+    UNIQUE(agencia, conta)
+);
+
+CREATE TABLE IF NOT EXISTS sicredi_cnpj_filial (
+    cnpj_digits TEXT PRIMARY KEY,
+    cod_filial TEXT NOT NULL,
+    atualizado_em TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS notas_raspadas (

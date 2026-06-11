@@ -21,18 +21,30 @@ class FlagBody(BaseModel):
     valor: bool
 
 
+@router.get("/fornecedores")
+def listar_fornecedores():
+    return {"ok": True, "fornecedores": db.obter_fornecedores_unicos_notas()}
+
+
 @router.get("")
 def listar_notas(
     dt_ini: str = "",
     dt_fim: str = "",
     cod: str = "",
-    status: str = "Todos",
+    status: str = "Erro",
     nota: str = "",
+    fornecedor: str = "Todos",
+    tipo_data: str = "insercao",
     limite: Optional[str] = "100",
 ):
     lim = None if str(limite or "").lower() == "todos" else limite
     try:
-        notas = db.listar_notas_filtradas(dt_ini, dt_fim, cod, status, nota, limite=lim)
+        notas = db.listar_notas_filtradas(
+            dt_ini, dt_fim, cod, status, nota,
+            fornecedor=fornecedor,
+            limite=lim,
+            campo_data=tipo_data,
+        )
         return {"ok": True, "notas": notas or []}
     except Exception as exc:
         raise HTTPException(500, str(exc)) from exc

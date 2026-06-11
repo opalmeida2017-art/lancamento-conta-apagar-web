@@ -51,6 +51,10 @@ if [ ! -f .env ]; then
   cp .env.example .env
   sed -i "s/^PG_PORT=.*/PG_PORT=5432/" .env
   sed -i "s/^NFE_WEB_PORT=.*/NFE_WEB_PORT=${NFE_PORT}/" .env
+  grep -q '^NFE_ALLOW_START_WITHOUT_DB=' .env || echo 'NFE_ALLOW_START_WITHOUT_DB=1' >> .env
+  grep -q '^NFE_ADMIN_SECRET=' .env || echo 'NFE_ADMIN_SECRET=altere-esta-chave-secreta' >> .env
+  IP_PUBLIC=$(hostname -I | awk '{print $1}')
+  sed -i "s/^NFE_PUBLIC_HOST=.*/NFE_PUBLIC_HOST=${IP_PUBLIC}/" .env 2>/dev/null || echo "NFE_PUBLIC_HOST=${IP_PUBLIC}" >> .env
   echo ""
   echo ">>> Edite ${APP_DIR}/.env (PG_PASSWORD, credenciais ERP)"
   echo ""

@@ -15,6 +15,7 @@ class FiltrosBody(BaseModel):
     cod_unidade_embarque: str = ""
     ultimos_30_dias: bool = False
     hoje_apenas: bool = False
+    ultimos_15_dias: bool = False
     fornecedores_fatura_afaturar: str = ""
     cod_tipo_fornecedor: str = ""
     modelos_placa: str = ""
@@ -53,6 +54,7 @@ def salvar_filtros(body: FiltrosBody):
         body.cod_unidade_embarque,
         int(body.ultimos_30_dias),
         int(body.hoje_apenas),
+        int(body.ultimos_15_dias),
         body.fornecedores_fatura_afaturar,
         body.cod_tipo_fornecedor,
     )
