@@ -81,7 +81,11 @@ systemctl restart nfe-web
 
 echo ""
 echo "=== Instalação concluída ==="
-echo "Painel:  http://$(hostname -I | awk '{print $1}'):${NFE_PORT}"
+PUBLIC_HOST="$(hostname -I | awk '{print $1}')"
+PUBLIC_URL="http://${PUBLIC_HOST}:${NFE_PORT}"
+echo "Painel:  ${PUBLIC_URL}"
+echo "Painel de licenças: ${PUBLIC_URL}/t/SLUG/#licenca-remota"
+echo "  Substitua SLUG pelo slug da transportadora provisionada."
 echo "Status:  systemctl status nfe-web"
 echo "Logs:    journalctl -u nfe-web -f"
 echo ""
