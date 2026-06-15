@@ -83,7 +83,23 @@ def health():
 
 @app.websocket("/ws")
 async def websocket_logs(websocket: WebSocket):
-    await ws_manager.connect(websocket)
+    await _websocket_logs(websocket)
+
+
+@app.websocket("/t/{tenant_slug}/ws")
+async def tenant_websocket_logs(websocket: WebSocket, tenant_slug: str):
+    import web_tenant_registry as registry
+
+    slug = str(tenant_slug or "").strip().lower()
+    tenant = registry.get_tenant(slug)
+    if not tenant or not tenant.get("ativo", True):
+        await websocket.close(code=1008)
+        return
+    await _websocket_logs(websocket, tenant_slug=slug)
+
+
+async def _websocket_logs(websocket: WebSocket, tenant_slug: str | None = None):
+    await ws_manager.connect(websocket, tenant_slug=tenant_slug)
     try:
         while True:
             await websocket.receive_text()

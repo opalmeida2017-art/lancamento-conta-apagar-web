@@ -2,6 +2,7 @@ import threading
 
 import backend.app.bootstrap as boot
 from backend.app.ws_manager import ws_manager
+from tenant_context import preserve_tenant_context
 
 db = boot.db
 log_service = boot.log_service
@@ -42,6 +43,21 @@ class RoboService:
     def tarifa_monitor_ativo(self) -> bool:
         return self._tarifa_monitor_timer is not None
 
+    def _iniciar_thread(self, target, *args):
+        thread = threading.Thread(
+            target=preserve_tenant_context(target),
+            args=args,
+            daemon=True,
+        )
+        thread.start()
+        return thread
+
+    def _iniciar_timer(self, intervalo, target):
+        timer = threading.Timer(intervalo, preserve_tenant_context(target))
+        timer.daemon = True
+        timer.start()
+        return timer
+
     def _emit(self, evento: dict):
         ws_manager.emit_from_thread(evento)
 
@@ -77,9 +93,7 @@ class RoboService:
                 return
             self._verificar_pasta_tarifas_auto()
             if esta_rodando():
-                self._tarifa_monitor_timer = threading.Timer(5.0, _tick)
-                self._tarifa_monitor_timer.daemon = True
-                self._tarifa_monitor_timer.start()
+                self._tarifa_monitor_timer = self._iniciar_timer(5.0, _tick)
 
         if esta_rodando():
             _tick()
@@ -156,12 +170,7 @@ class RoboService:
             self._status = "Iniciando..."
             self._emit({"tipo": "status", "mensagem": self._status, "rodando": True})
 
-            thread = threading.Thread(
-                target=self._executar,
-                args=(nota_alvo, compra_estoque),
-                daemon=True,
-            )
-            thread.start()
+            self._iniciar_thread(self._executar, nota_alvo, compra_estoque)
             self._agendar_monitor_tarifa()
             return {"ok": True, "acao": "iniciado", "sessao_id": self._sessao_log}
 
@@ -181,8 +190,7 @@ class RoboService:
         self._status = "Iniciando lote..."
         self._emit({"tipo": "status", "mensagem": self._status, "rodando": True})
 
-        thread = threading.Thread(target=self._executar_lote, args=(notas,), daemon=True)
-        thread.start()
+        self._iniciar_thread(self._executar_lote, notas)
         self._agendar_monitor_tarifa()
         return {"ok": True, "acao": "lote_iniciado", "total": len(notas), "sessao_id": self._sessao_log}
 
@@ -331,7 +339,7 @@ class RoboService:
             self._emit({"tipo": "status", "mensagem": msg})
             self._emit({"tipo": "tarifas_atualizadas", "ok": ok})
 
-        threading.Thread(target=rodar, daemon=True).start()
+        self._iniciar_thread(rodar)
         return {"ok": True, "mensagem": "Importação de planilhas iniciada."}
 
     def lancar_tarifas_pendentes(self) -> dict:
@@ -358,7 +366,7 @@ class RoboService:
                 self._lancando_tarifa = False
                 self._emit({"tipo": "tarifas_atualizadas"})
 
-        threading.Thread(target=rodar, daemon=True).start()
+        self._iniciar_thread(rodar)
         return {"ok": True, "mensagem": "Lançamento de tarifas pendentes iniciado."}
 
     def sincronizar_frota(self) -> dict:
@@ -373,7 +381,7 @@ class RoboService:
             self._emit({"tipo": "status", "mensagem": msg})
             self._emit({"tipo": "frota_atualizada", "ok": ok})
 
-        threading.Thread(target=rodar, daemon=True).start()
+        self._iniciar_thread(rodar)
         return {"ok": True, "mensagem": "Sincronização de frota iniciada."}
 
     def sincronizar_itens(self) -> dict:
@@ -388,7 +396,7 @@ class RoboService:
             self._emit({"tipo": "status", "mensagem": msg})
             self._emit({"tipo": "itens_atualizados", "ok": ok})
 
-        threading.Thread(target=rodar, daemon=True).start()
+        self._iniciar_thread(rodar)
         return {"ok": True, "mensagem": "Sincronização de itens iniciada."}
 
     def iniciar_importacao_xml(self, itens_xml) -> dict:
@@ -402,7 +410,7 @@ class RoboService:
             solicitar_parada_apos_nota()
             self._emit({"tipo": "status", "mensagem": "Aguardando robô parar para importar XML..."})
             return {"ok": True, "acao": "agendada", "mensagem": "Importação agendada após nota atual."}
-        threading.Thread(target=self._executar_importacao_xml, args=(itens,), daemon=True).start()
+        self._iniciar_thread(self._executar_importacao_xml, itens)
         return {"ok": True, "acao": "iniciada", "total": len(itens)}
 
     def _executar_importacao_xml(self, itens_xml):
@@ -452,11 +460,7 @@ class RoboService:
         config = db.carregar_configuracoes()
         if not config or not config.get("link"):
             return {"ok": False, "mensagem": "Configure o ERP primeiro."}
-        threading.Thread(
-            target=self._executar_migracao,
-            args=(config, codigos, novo_grupo, grupo_atual),
-            daemon=True,
-        ).start()
+        self._iniciar_thread(self._executar_migracao, config, codigos, novo_grupo, grupo_atual)
         return {"ok": True, "mensagem": f"Migração de {len(codigos)} item(ns) iniciada."}
 
     def _executar_migracao(self, config, codigos, novo_grupo, grupo_atual):

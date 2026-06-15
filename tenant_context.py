@@ -1,10 +1,12 @@
 """Contexto do tenant ativo (banco PostgreSQL isolado por transportadora)."""
 from contextlib import contextmanager
+from functools import wraps
 from contextvars import ContextVar
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple, TypeVar
 
 _tenant_slug: ContextVar[Optional[str]] = ContextVar("tenant_slug", default=None)
 _tenant_db: ContextVar[Optional[str]] = ContextVar("tenant_db", default=None)
+_F = TypeVar("_F", bound=Callable)
 
 
 def get_tenant_slug() -> Optional[str]:
@@ -34,3 +36,15 @@ def tenant_scope(slug: str | None, pg_database: str | None = None):
         yield
     finally:
         reset_tenant(tokens)
+
+
+def preserve_tenant_context(func: _F) -> _F:
+    slug = get_tenant_slug()
+    pg_database = get_tenant_db()
+
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with tenant_scope(slug, pg_database):
+            return func(*args, **kwargs)
+
+    return wrapped
