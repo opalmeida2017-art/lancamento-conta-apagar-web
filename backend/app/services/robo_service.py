@@ -2,6 +2,7 @@ import threading
 
 import backend.app.bootstrap as boot
 from backend.app.ws_manager import ws_manager
+from tenant_context import get_tenant_slug, preserve_tenant_context
 
 db = boot.db
 log_service = boot.log_service
@@ -18,29 +19,60 @@ from robo_web.controle_robo import (  # noqa: E402
 class RoboService:
     def __init__(self):
         self._lock = threading.Lock()
-        self._sessao_log = None
-        self._status = "Parado"
+        self._tenant_states = {}
+        self._active_tenants = set()
         self._log_listener = None
-        self._importacao_xml_em_andamento = False
-        self._importacao_xml_pendente = None
-        self._migracao_em_andamento = False
-        self._tarifa_monitor_timer = None
-        self._tarifa_snapshot = {}
-        self._importando_tarifa_auto = False
-        self._lancando_tarifa = False
+
+    def _tenant_key(self):
+        return get_tenant_slug() or "__default__"
+
+    def _tenant_state(self, key=None):
+        key = key or self._tenant_key()
+        return self._tenant_states.setdefault(key, {
+            "sessao_log": None,
+            "status": "Parado",
+            "importacao_xml_em_andamento": False,
+            "importacao_xml_pendente": None,
+            "migracao_em_andamento": False,
+            "tarifa_monitor_timer": None,
+            "tarifa_snapshot": {},
+            "importando_tarifa_auto": False,
+            "lancando_tarifa": False,
+        })
+
+    def _tenant_rodando(self, key=None):
+        key = key or self._tenant_key()
+        return key in self._active_tenants or esta_rodando()
 
     def status(self) -> dict:
+        key = self._tenant_key()
+        state = self._tenant_state(key)
         return {
-            "rodando": esta_rodando(),
-            "status": self._status,
-            "sessao_id": self._sessao_log,
-            "importacao_xml": self._importacao_xml_em_andamento,
-            "migracao": self._migracao_em_andamento,
+            "rodando": self._tenant_rodando(key),
+            "status": state["status"],
+            "sessao_id": state["sessao_log"],
+            "importacao_xml": state["importacao_xml_em_andamento"],
+            "migracao": state["migracao_em_andamento"],
             "tarifa_monitor": self.tarifa_monitor_ativo(),
         }
 
     def tarifa_monitor_ativo(self) -> bool:
-        return self._tarifa_monitor_timer is not None
+        return self._tenant_state()["tarifa_monitor_timer"] is not None
+
+    def _iniciar_thread(self, target, *args):
+        thread = threading.Thread(
+            target=preserve_tenant_context(target),
+            args=args,
+            daemon=True,
+        )
+        thread.start()
+        return thread
+
+    def _iniciar_timer(self, intervalo, target):
+        timer = threading.Timer(intervalo, preserve_tenant_context(target))
+        timer.daemon = True
+        timer.start()
+        return timer
 
     def _emit(self, evento: dict):
         ws_manager.emit_from_thread(evento)
@@ -54,53 +86,60 @@ class RoboService:
             log_service.adicionar_listener(self._log_listener)
 
     def _remover_listener(self):
-        if self._log_listener:
+        if self._log_listener and not self._active_tenants:
             log_service.remover_listener(self._log_listener)
             self._log_listener = None
 
-    def _cancelar_monitor_tarifa(self):
-        self._tarifa_monitor_timer = None
-        self._tarifa_snapshot = {}
+    def _cancelar_monitor_tarifa(self, state=None):
+        state = state or self._tenant_state()
+        timer = state.get("tarifa_monitor_timer")
+        if timer:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+        state["tarifa_monitor_timer"] = None
+        state["tarifa_snapshot"] = {}
 
     def _agendar_monitor_tarifa(self):
-        self._cancelar_monitor_tarifa()
+        state = self._tenant_state()
+        self._cancelar_monitor_tarifa(state)
         pasta = db.obter_pasta_tarifas_bancarias()
         if pasta:
             try:
-                self._tarifa_snapshot = modulo_tarifa_bancaria.obter_snapshot_planilhas(pasta)
+                state["tarifa_snapshot"] = modulo_tarifa_bancaria.obter_snapshot_planilhas(pasta)
             except Exception:
-                self._tarifa_snapshot = {}
+                state["tarifa_snapshot"] = {}
 
         def _tick():
             if not esta_rodando():
-                self._cancelar_monitor_tarifa()
+                self._cancelar_monitor_tarifa(state)
                 return
-            self._verificar_pasta_tarifas_auto()
+            self._verificar_pasta_tarifas_auto(state)
             if esta_rodando():
-                self._tarifa_monitor_timer = threading.Timer(5.0, _tick)
-                self._tarifa_monitor_timer.daemon = True
-                self._tarifa_monitor_timer.start()
+                state["tarifa_monitor_timer"] = self._iniciar_timer(5.0, _tick)
 
         if esta_rodando():
             _tick()
 
-    def _verificar_pasta_tarifas_auto(self):
-        if self._importando_tarifa_auto or not esta_rodando():
+    def _verificar_pasta_tarifas_auto(self, state=None):
+        state = state or self._tenant_state()
+        if state["importando_tarifa_auto"] or not esta_rodando():
             return
         pasta = db.obter_pasta_tarifas_bancarias()
         if not pasta:
             return
         pendentes, _ = modulo_tarifa_bancaria.detectar_planilhas_pendentes(
-            self._tarifa_snapshot, pasta,
+            state["tarifa_snapshot"], pasta,
         )
         if not pendentes:
             return
-        self._importando_tarifa_auto = True
+        state["importando_tarifa_auto"] = True
         try:
             novo_snapshot, importados = modulo_tarifa_bancaria.importar_planilhas_alteradas(
-                pasta, self._tarifa_snapshot,
+                pasta, state["tarifa_snapshot"],
             )
-            self._tarifa_snapshot = novo_snapshot
+            state["tarifa_snapshot"] = novo_snapshot
             if importados:
                 self._emit({"tipo": "tarifas_atualizadas", "importados": importados})
                 log_service.registrar_log(
@@ -108,7 +147,7 @@ class RoboService:
                     origem="TARIFA",
                 )
         finally:
-            self._importando_tarifa_auto = False
+            state["importando_tarifa_auto"] = False
 
     def _resolver_parametros_robo(self, log_ui, sessao):
         config = db.carregar_configuracoes()
@@ -140,11 +179,13 @@ class RoboService:
 
     def iniciar(self, nota_alvo=None, compra_estoque=False, notas_lote=None) -> dict:
         with self._lock:
-            if esta_rodando():
+            tenant_key = self._tenant_key()
+            state = self._tenant_state(tenant_key)
+            if tenant_key in self._active_tenants or esta_rodando():
                 solicitar_parada()
-                self._status = "Parando..."
-                self._emit({"tipo": "status", "mensagem": self._status})
-                self._cancelar_monitor_tarifa()
+                state["status"] = "Parando..."
+                self._emit({"tipo": "status", "mensagem": state["status"]})
+                self._cancelar_monitor_tarifa(state)
                 return {"ok": True, "acao": "parada_solicitada"}
 
             if notas_lote:
@@ -152,18 +193,14 @@ class RoboService:
 
             self._registrar_listener()
             descricao = f"Nota alvo {nota_alvo}" if nota_alvo else "Processamento completo do robô"
-            self._sessao_log = log_service.iniciar_sessao(origem="ROBO", descricao=descricao)
-            self._status = "Iniciando..."
-            self._emit({"tipo": "status", "mensagem": self._status, "rodando": True})
+            state["sessao_log"] = log_service.iniciar_sessao(origem="ROBO", descricao=descricao)
+            self._active_tenants.add(tenant_key)
+            state["status"] = "Iniciando..."
+            self._emit({"tipo": "status", "mensagem": state["status"], "rodando": True})
 
-            thread = threading.Thread(
-                target=self._executar,
-                args=(nota_alvo, compra_estoque),
-                daemon=True,
-            )
-            thread.start()
+            self._iniciar_thread(self._executar, nota_alvo, compra_estoque)
             self._agendar_monitor_tarifa()
-            return {"ok": True, "acao": "iniciado", "sessao_id": self._sessao_log}
+            return {"ok": True, "acao": "iniciado", "sessao_id": state["sessao_log"]}
 
     def _iniciar_lote(self, notas_lote) -> dict:
         notas = [str(n or "").strip() for n in (notas_lote or []) if str(n or "").strip()]
@@ -171,30 +208,33 @@ class RoboService:
             return {"ok": False, "mensagem": "Informe ao menos um número de nota."}
 
         self._registrar_listener()
+        tenant_key = self._tenant_key()
+        state = self._tenant_state(tenant_key)
         resumo = ", ".join(notas[:8])
         if len(notas) > 8:
             resumo += f" (+{len(notas) - 8})"
-        self._sessao_log = log_service.iniciar_sessao(
+        state["sessao_log"] = log_service.iniciar_sessao(
             origem="ROBO",
             descricao=f"Lote de notas ({len(notas)}): {resumo}",
         )
-        self._status = "Iniciando lote..."
-        self._emit({"tipo": "status", "mensagem": self._status, "rodando": True})
+        self._active_tenants.add(tenant_key)
+        state["status"] = "Iniciando lote..."
+        self._emit({"tipo": "status", "mensagem": state["status"], "rodando": True})
 
-        thread = threading.Thread(target=self._executar_lote, args=(notas,), daemon=True)
-        thread.start()
+        self._iniciar_thread(self._executar_lote, notas)
         self._agendar_monitor_tarifa()
-        return {"ok": True, "acao": "lote_iniciado", "total": len(notas), "sessao_id": self._sessao_log}
+        return {"ok": True, "acao": "lote_iniciado", "total": len(notas), "sessao_id": state["sessao_log"]}
 
     def _executar(self, nota_alvo, compra_estoque):
-        sessao = self._sessao_log
+        state = self._tenant_state()
+        sessao = state["sessao_log"]
         status_final = "SUCESSO"
 
         def log_ui(mensagem):
             texto = str(mensagem or "").strip()
             if not texto:
                 return
-            self._status = texto
+            state["status"] = texto
             log_service.registrar_log(texto, origem="ROBO", sessao_id=sessao)
             self._emit({"tipo": "status", "mensagem": texto, "rodando": True})
 
@@ -234,15 +274,17 @@ class RoboService:
             log_ui(f"ERRO: {exc}")
         finally:
             log_service.finalizar_sessao(sessao, origem="ROBO", status=status_final)
-            self._status = "Parado"
-            self._sessao_log = None
+            state["status"] = "Parado"
+            state["sessao_log"] = None
+            self._active_tenants.discard(self._tenant_key())
             self._remover_listener()
-            self._cancelar_monitor_tarifa()
+            self._cancelar_monitor_tarifa(state)
             self._emit({"tipo": "status", "mensagem": "Parado", "rodando": False})
             self._emit({"tipo": "painel_atualizar"})
 
     def _executar_lote(self, notas_lote):
-        sessao = self._sessao_log
+        state = self._tenant_state()
+        sessao = state["sessao_log"]
         status_final = "SUCESSO"
         erros = 0
         total = len(notas_lote)
@@ -251,7 +293,7 @@ class RoboService:
             texto = str(mensagem or "").strip()
             if not texto:
                 return
-            self._status = texto
+            state["status"] = texto
             log_service.registrar_log(texto, origem="ROBO", sessao_id=sessao)
             self._emit({"tipo": "status", "mensagem": texto, "rodando": True})
 
@@ -307,10 +349,12 @@ class RoboService:
             self._finalizar_robo()
 
     def _finalizar_robo(self):
-        self._status = "Parado"
-        self._sessao_log = None
+        state = self._tenant_state()
+        state["status"] = "Parado"
+        state["sessao_log"] = None
+        self._active_tenants.discard(self._tenant_key())
         self._remover_listener()
-        self._cancelar_monitor_tarifa()
+        self._cancelar_monitor_tarifa(state)
         self._emit({"tipo": "status", "mensagem": "Parado", "rodando": False})
         self._emit({"tipo": "painel_atualizar"})
 
@@ -331,17 +375,18 @@ class RoboService:
             self._emit({"tipo": "status", "mensagem": msg})
             self._emit({"tipo": "tarifas_atualizadas", "ok": ok})
 
-        threading.Thread(target=rodar, daemon=True).start()
+        self._iniciar_thread(rodar)
         return {"ok": True, "mensagem": "Importação de planilhas iniciada."}
 
     def lancar_tarifas_pendentes(self) -> dict:
-        if self._lancando_tarifa:
+        state = self._tenant_state()
+        if state["lancando_tarifa"]:
             return {"ok": False, "mensagem": "Lançamento de tarifas já em andamento."}
         if esta_rodando():
             return {"ok": False, "mensagem": "Pare o robô NFe antes de lançar tarifas."}
 
         def rodar():
-            self._lancando_tarifa = True
+            state["lancando_tarifa"] = True
             sessao = log_service.iniciar_sessao(origem="TARIFA", descricao="Lançamento de tarifas pendentes")
 
             def log_ui(msg):
@@ -355,10 +400,10 @@ class RoboService:
                 log_ui(f"ERRO: {exc}")
             finally:
                 log_service.finalizar_sessao(sessao, origem="TARIFA", status="SUCESSO")
-                self._lancando_tarifa = False
+                state["lancando_tarifa"] = False
                 self._emit({"tipo": "tarifas_atualizadas"})
 
-        threading.Thread(target=rodar, daemon=True).start()
+        self._iniciar_thread(rodar)
         return {"ok": True, "mensagem": "Lançamento de tarifas pendentes iniciado."}
 
     def sincronizar_frota(self) -> dict:
@@ -373,7 +418,7 @@ class RoboService:
             self._emit({"tipo": "status", "mensagem": msg})
             self._emit({"tipo": "frota_atualizada", "ok": ok})
 
-        threading.Thread(target=rodar, daemon=True).start()
+        self._iniciar_thread(rodar)
         return {"ok": True, "mensagem": "Sincronização de frota iniciada."}
 
     def sincronizar_itens(self) -> dict:
@@ -388,25 +433,27 @@ class RoboService:
             self._emit({"tipo": "status", "mensagem": msg})
             self._emit({"tipo": "itens_atualizados", "ok": ok})
 
-        threading.Thread(target=rodar, daemon=True).start()
+        self._iniciar_thread(rodar)
         return {"ok": True, "mensagem": "Sincronização de itens iniciada."}
 
     def iniciar_importacao_xml(self, itens_xml) -> dict:
+        state = self._tenant_state()
         itens = [dict(i) for i in (itens_xml or []) if i.get("caminho")]
         if not itens:
             return {"ok": False, "mensagem": "Nenhum XML informado."}
-        if self._importacao_xml_em_andamento:
+        if state["importacao_xml_em_andamento"]:
             return {"ok": False, "mensagem": "Importação XML já em andamento."}
         if esta_rodando():
-            self._importacao_xml_pendente = itens
+            state["importacao_xml_pendente"] = itens
             solicitar_parada_apos_nota()
             self._emit({"tipo": "status", "mensagem": "Aguardando robô parar para importar XML..."})
             return {"ok": True, "acao": "agendada", "mensagem": "Importação agendada após nota atual."}
-        threading.Thread(target=self._executar_importacao_xml, args=(itens,), daemon=True).start()
+        self._iniciar_thread(self._executar_importacao_xml, itens)
         return {"ok": True, "acao": "iniciada", "total": len(itens)}
 
     def _executar_importacao_xml(self, itens_xml):
-        self._importacao_xml_em_andamento = True
+        state = self._tenant_state()
+        state["importacao_xml_em_andamento"] = True
         sessao = log_service.iniciar_sessao(origem="XML", descricao=f"Importação de {len(itens_xml)} XML(s)")
         status_final = "SUCESSO"
 
@@ -437,30 +484,28 @@ class RoboService:
             log_ui(f"ERRO: {exc}")
         finally:
             log_service.finalizar_sessao(sessao, origem="XML", status=status_final)
-            self._importacao_xml_em_andamento = False
-            pendente = self._importacao_xml_pendente
-            self._importacao_xml_pendente = None
+            state["importacao_xml_em_andamento"] = False
+            pendente = state["importacao_xml_pendente"]
+            state["importacao_xml_pendente"] = None
             self._emit({"tipo": "xml_concluida"})
             if pendente:
                 self.iniciar_importacao_xml(pendente)
 
     def iniciar_migracao(self, codigos, novo_grupo, grupo_atual="Filtrado") -> dict:
-        if self._migracao_em_andamento:
+        state = self._tenant_state()
+        if state["migracao_em_andamento"]:
             return {"ok": False, "mensagem": "Migração já em andamento."}
         if esta_rodando():
             return {"ok": False, "mensagem": "Pare o robô antes de migrar itens."}
         config = db.carregar_configuracoes()
         if not config or not config.get("link"):
             return {"ok": False, "mensagem": "Configure o ERP primeiro."}
-        threading.Thread(
-            target=self._executar_migracao,
-            args=(config, codigos, novo_grupo, grupo_atual),
-            daemon=True,
-        ).start()
+        self._iniciar_thread(self._executar_migracao, config, codigos, novo_grupo, grupo_atual)
         return {"ok": True, "mensagem": f"Migração de {len(codigos)} item(ns) iniciada."}
 
     def _executar_migracao(self, config, codigos, novo_grupo, grupo_atual):
-        self._migracao_em_andamento = True
+        state = self._tenant_state()
+        state["migracao_em_andamento"] = True
         sessao = log_service.iniciar_sessao(
             origem="MIGRACAO",
             descricao=f"Migração de {len(codigos)} itens para {novo_grupo}",
@@ -478,7 +523,7 @@ class RoboService:
             log_ui(f"ERRO: {exc}")
         finally:
             log_service.finalizar_sessao(sessao, origem="MIGRACAO", status="SUCESSO")
-            self._migracao_em_andamento = False
+            state["migracao_em_andamento"] = False
             self._emit({"tipo": "itens_atualizados"})
 
 
