@@ -42,7 +42,7 @@ class RoboService:
 
     def _tenant_rodando(self, key=None):
         key = key or self._tenant_key()
-        return key in self._active_tenants and esta_rodando()
+        return key in self._active_tenants or esta_rodando()
 
     def status(self) -> dict:
         key = self._tenant_key()
@@ -181,7 +181,7 @@ class RoboService:
         with self._lock:
             tenant_key = self._tenant_key()
             state = self._tenant_state(tenant_key)
-            if esta_rodando():
+            if tenant_key in self._active_tenants or esta_rodando():
                 solicitar_parada()
                 state["status"] = "Parando..."
                 self._emit({"tipo": "status", "mensagem": state["status"]})
