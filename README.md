@@ -71,6 +71,10 @@ sudo systemctl status nfe-web
 
 Painel: **http://IP_DO_SERVIDOR:8090**
 
+Painel de licenças da transportadora: **http://IP_DO_SERVIDOR:8090/t/SLUG/#licenca-remota**
+
+Substitua `SLUG` pelo slug exibido ao provisionar a instância.
+
 ### Serviços no mesmo servidor
 
 | Sistema | Porta padrão | Pasta |

@@ -82,6 +82,7 @@ def main():
     item = criar_instancia(args.razao_social, args.slug or None)
     print(f"OK slug={item['slug']}")
     print(f"URL: {item['url']}")
+    print(f"Painel de licenças: {item['url'].rstrip('/')}/#licenca-remota")
     print(f"Banco: {item['pg_database']}")
 
 

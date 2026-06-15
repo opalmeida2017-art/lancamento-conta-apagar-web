@@ -16,6 +16,10 @@ let xmlItens = [];
 
 function el(id) { return document.getElementById(id); }
 
+const HASH_PAGE_ALIASES = {
+  "licenca-remota": "config",
+};
+
 function showPage(name) {
   document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
@@ -23,6 +27,34 @@ function showPage(name) {
   if (!pagina) return;
   pagina.classList.add("active");
   document.querySelector('.nav-btn[data-page="' + name + '"]')?.classList.add("active");
+}
+
+function pageFromHash(hash = window.location.hash) {
+  const target = decodeURIComponent(String(hash || "").replace(/^#/, ""));
+  const page = HASH_PAGE_ALIASES[target] || target || "execucao";
+  if (!document.querySelector('.nav-btn[data-page="' + page + '"]')) {
+    return { page: "execucao", target: "" };
+  }
+  return { page, target };
+}
+
+async function carregarPagina(page) {
+  if (page === "execucao") { await carregarFornecedores(); await buscarNotas(); }
+  if (page === "tarifa") await carregarTarifas();
+  if (page === "veiculos") await buscarVeiculos();
+  if (page === "itens") { await carregarGrupos(); await buscarItens(); }
+  if (page === "filtros") await carregarFiltros();
+  if (page === "config") await carregarConfig();
+  if (page === "logs") await carregarLogs();
+}
+
+async function abrirPaginaPeloHash() {
+  const { page, target } = pageFromHash();
+  showPage(page);
+  await carregarPagina(page);
+  if (target && target !== page) {
+    window.requestAnimationFrame(() => el(target)?.scrollIntoView({ block: "start" }));
+  }
 }
 
 function esc(s) {
@@ -668,17 +700,18 @@ function initNav() {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const page = btn.dataset.page;
-      showPage(page);
       try {
-        if (page === "execucao") { await carregarFornecedores(); await buscarNotas(); }
-        if (page === "tarifa") await carregarTarifas();
-        if (page === "veiculos") await buscarVeiculos();
-        if (page === "itens") { await carregarGrupos(); await buscarItens(); }
-        if (page === "filtros") await carregarFiltros();
-        if (page === "config") await carregarConfig();
-        if (page === "logs") await carregarLogs();
+        const nextHash = "#" + page;
+        if (window.location.hash === nextHash) {
+          await abrirPaginaPeloHash();
+        } else {
+          window.location.hash = nextHash;
+        }
       } catch (e) { alert("Erro ao carregar: " + e.message); }
     });
+  });
+  window.addEventListener("hashchange", () => {
+    abrirPaginaPeloHash().catch((e) => alert("Erro ao carregar: " + e.message));
   });
 }
 
@@ -795,10 +828,8 @@ async function init() {
   initNav();
   initEvents();
   initWebSocket();
-  showPage("execucao");
+  await abrirPaginaPeloHash();
   await refreshRoboStatus();
-  await carregarFornecedores();
-  await buscarNotas();
   setInterval(refreshRoboStatus, 5000);
   setInterval(() => { if (roboRodando) buscarNotas(); }, 4000);
   try {
