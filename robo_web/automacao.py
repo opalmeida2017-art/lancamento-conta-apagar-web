@@ -7,8 +7,8 @@ from .controle_robo import (
     RoboParadoPeloUsuario,
     encerrar_sessao,
     marcar_rodando,
+    parada_solicitada,
     registrar_browser,
-    solicitar_parada,
     verificar_parada,
 )
 from .erp_lock import ERP_LOCK
@@ -144,8 +144,7 @@ def iniciar_automacao(
                 )
                 log('Reiniciando robô (novo navegador)...')
             except Exception as e:
-                from .controle_robo import _sessao
-                if _sessao.get('parar'):
+                if parada_solicitada():
                     log('Robô parado pelo usuário. Navegador fechado.')
                     raise RoboParadoPeloUsuario() from e
                 if not modo_continuo:
