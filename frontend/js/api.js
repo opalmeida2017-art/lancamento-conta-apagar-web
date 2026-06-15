@@ -1,6 +1,3 @@
-import os
-import re
-
 export function tenantBasePath() {
   const m = window.location.pathname.match(/^\/t\/([a-z0-9-]+)/i);
   return m ? `/t/${m[1]}` : "";
