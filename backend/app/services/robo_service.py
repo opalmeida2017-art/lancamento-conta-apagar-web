@@ -2,7 +2,7 @@ import threading
 
 import backend.app.bootstrap as boot
 from backend.app.ws_manager import ws_manager
-from tenant_context import preserve_tenant_context
+from tenant_context import get_tenant_slug, preserve_tenant_context
 
 db = boot.db
 log_service = boot.log_service
@@ -19,8 +19,8 @@ from robo_web.controle_robo import (  # noqa: E402
 class RoboService:
     def __init__(self):
         self._lock = threading.Lock()
-        self._sessao_log = None
-        self._status = "Parado"
+        self._tenant_states = {}
+        self._active_tenant = None
         self._log_listener = None
         self._importacao_xml_em_andamento = False
         self._importacao_xml_pendente = None
@@ -30,11 +30,24 @@ class RoboService:
         self._importando_tarifa_auto = False
         self._lancando_tarifa = False
 
+    def _tenant_key(self):
+        return get_tenant_slug() or "__default__"
+
+    def _tenant_state(self, key=None):
+        key = key or self._tenant_key()
+        return self._tenant_states.setdefault(key, {"sessao_log": None, "status": "Parado"})
+
+    def _tenant_rodando(self, key=None):
+        key = key or self._tenant_key()
+        return self._active_tenant == key and esta_rodando()
+
     def status(self) -> dict:
+        key = self._tenant_key()
+        state = self._tenant_state(key)
         return {
-            "rodando": esta_rodando(),
-            "status": self._status,
-            "sessao_id": self._sessao_log,
+            "rodando": self._tenant_rodando(key),
+            "status": state["status"],
+            "sessao_id": state["sessao_log"],
             "importacao_xml": self._importacao_xml_em_andamento,
             "migracao": self._migracao_em_andamento,
             "tarifa_monitor": self.tarifa_monitor_ativo(),
@@ -154,25 +167,33 @@ class RoboService:
 
     def iniciar(self, nota_alvo=None, compra_estoque=False, notas_lote=None) -> dict:
         with self._lock:
+            tenant_key = self._tenant_key()
+            state = self._tenant_state(tenant_key)
             if esta_rodando():
-                solicitar_parada()
-                self._status = "Parando..."
-                self._emit({"tipo": "status", "mensagem": self._status})
-                self._cancelar_monitor_tarifa()
-                return {"ok": True, "acao": "parada_solicitada"}
+                if self._active_tenant == tenant_key:
+                    solicitar_parada()
+                    state["status"] = "Parando..."
+                    self._emit({"tipo": "status", "mensagem": state["status"]})
+                    self._cancelar_monitor_tarifa()
+                    return {"ok": True, "acao": "parada_solicitada"}
+                return {
+                    "ok": False,
+                    "mensagem": "Já existe uma execução de robô em andamento em outro link.",
+                }
 
             if notas_lote:
                 return self._iniciar_lote(notas_lote)
 
             self._registrar_listener()
             descricao = f"Nota alvo {nota_alvo}" if nota_alvo else "Processamento completo do robô"
-            self._sessao_log = log_service.iniciar_sessao(origem="ROBO", descricao=descricao)
-            self._status = "Iniciando..."
-            self._emit({"tipo": "status", "mensagem": self._status, "rodando": True})
+            state["sessao_log"] = log_service.iniciar_sessao(origem="ROBO", descricao=descricao)
+            self._active_tenant = tenant_key
+            state["status"] = "Iniciando..."
+            self._emit({"tipo": "status", "mensagem": state["status"], "rodando": True})
 
             self._iniciar_thread(self._executar, nota_alvo, compra_estoque)
             self._agendar_monitor_tarifa()
-            return {"ok": True, "acao": "iniciado", "sessao_id": self._sessao_log}
+            return {"ok": True, "acao": "iniciado", "sessao_id": state["sessao_log"]}
 
     def _iniciar_lote(self, notas_lote) -> dict:
         notas = [str(n or "").strip() for n in (notas_lote or []) if str(n or "").strip()]
@@ -180,29 +201,33 @@ class RoboService:
             return {"ok": False, "mensagem": "Informe ao menos um número de nota."}
 
         self._registrar_listener()
+        tenant_key = self._tenant_key()
+        state = self._tenant_state(tenant_key)
         resumo = ", ".join(notas[:8])
         if len(notas) > 8:
             resumo += f" (+{len(notas) - 8})"
-        self._sessao_log = log_service.iniciar_sessao(
+        state["sessao_log"] = log_service.iniciar_sessao(
             origem="ROBO",
             descricao=f"Lote de notas ({len(notas)}): {resumo}",
         )
-        self._status = "Iniciando lote..."
-        self._emit({"tipo": "status", "mensagem": self._status, "rodando": True})
+        self._active_tenant = tenant_key
+        state["status"] = "Iniciando lote..."
+        self._emit({"tipo": "status", "mensagem": state["status"], "rodando": True})
 
         self._iniciar_thread(self._executar_lote, notas)
         self._agendar_monitor_tarifa()
-        return {"ok": True, "acao": "lote_iniciado", "total": len(notas), "sessao_id": self._sessao_log}
+        return {"ok": True, "acao": "lote_iniciado", "total": len(notas), "sessao_id": state["sessao_log"]}
 
     def _executar(self, nota_alvo, compra_estoque):
-        sessao = self._sessao_log
+        state = self._tenant_state()
+        sessao = state["sessao_log"]
         status_final = "SUCESSO"
 
         def log_ui(mensagem):
             texto = str(mensagem or "").strip()
             if not texto:
                 return
-            self._status = texto
+            state["status"] = texto
             log_service.registrar_log(texto, origem="ROBO", sessao_id=sessao)
             self._emit({"tipo": "status", "mensagem": texto, "rodando": True})
 
@@ -242,15 +267,18 @@ class RoboService:
             log_ui(f"ERRO: {exc}")
         finally:
             log_service.finalizar_sessao(sessao, origem="ROBO", status=status_final)
-            self._status = "Parado"
-            self._sessao_log = None
+            state["status"] = "Parado"
+            state["sessao_log"] = None
+            if self._active_tenant == self._tenant_key():
+                self._active_tenant = None
             self._remover_listener()
             self._cancelar_monitor_tarifa()
             self._emit({"tipo": "status", "mensagem": "Parado", "rodando": False})
             self._emit({"tipo": "painel_atualizar"})
 
     def _executar_lote(self, notas_lote):
-        sessao = self._sessao_log
+        state = self._tenant_state()
+        sessao = state["sessao_log"]
         status_final = "SUCESSO"
         erros = 0
         total = len(notas_lote)
@@ -259,7 +287,7 @@ class RoboService:
             texto = str(mensagem or "").strip()
             if not texto:
                 return
-            self._status = texto
+            state["status"] = texto
             log_service.registrar_log(texto, origem="ROBO", sessao_id=sessao)
             self._emit({"tipo": "status", "mensagem": texto, "rodando": True})
 
@@ -315,8 +343,11 @@ class RoboService:
             self._finalizar_robo()
 
     def _finalizar_robo(self):
-        self._status = "Parado"
-        self._sessao_log = None
+        state = self._tenant_state()
+        state["status"] = "Parado"
+        state["sessao_log"] = None
+        if self._active_tenant == self._tenant_key():
+            self._active_tenant = None
         self._remover_listener()
         self._cancelar_monitor_tarifa()
         self._emit({"tipo": "status", "mensagem": "Parado", "rodando": False})
