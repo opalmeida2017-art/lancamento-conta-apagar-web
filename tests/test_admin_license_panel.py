@@ -1,5 +1,6 @@
 import importlib
 import os
+from pathlib import Path
 import sys
 import types
 import unittest
@@ -102,6 +103,16 @@ class AdminLicensePanelTests(unittest.TestCase):
 
         self.assertTrue(resposta["ok"])
         self.assertEqual(chamadas, [("teste6.json", "sim")])
+
+    def test_portal_has_requested_access_tabs(self):
+        html = Path("frontend/portal.html").read_text(encoding="utf-8")
+
+        self.assertIn("Automação Conta a Pagar", html)
+        self.assertIn("Automação Conta a Pagar Web", html)
+        self.assertIn("Web BI", html)
+        self.assertIn("data-tab=\"conta-apagar\"", html)
+        self.assertIn("data-tab=\"conta-apagar-web\"", html)
+        self.assertIn("data-tab=\"web-bi\"", html)
 
 
 if __name__ == "__main__":
